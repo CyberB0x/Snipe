@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SNIPE - Сканер сети</title>
+</head>
+<body>
+    <h1>SNIPE: Сканер сети</h1>
+    <form method="post" action="/scan/">
+        {% csrf_token %}
+        <input type="text" name="ip_range" placeholder="192.168.1.0/24">
+        <button type="submit">Сканировать</button>
+    </form>
+    <a href="/export/">Экспорт в JSON</a>
+    <hr>
+    <h2>Результаты:</h2>
+    {% for r in results %}
+        <div>
+            <strong>{{ r.ip }}</strong> — {{ r.mac }} — {{ r.os }}<br>
+            Порты: {{ r.open_ports }}<br>
+            Баннеры: {{ r.banners }}<br>
+            Время: {{ r.scan_date }}
+        </div>
+        <hr>
+    {% endfor %}
+</body>
+</html>
