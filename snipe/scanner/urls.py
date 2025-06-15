@@ -3,6 +3,6 @@ from . import views
 
 urlpatterns = [
     path('', views.index, name='index'),
-    path('scan/', views.scan_network, name='scan'),
-    path('export/', views.export_json, name='export'),
+    path('scan/', views.scan, name='scan'),
+    path('clear-history/', views.clear_history, name='clear_history'),
 ]

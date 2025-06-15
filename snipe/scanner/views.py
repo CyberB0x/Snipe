@@ -1,44 +1,75 @@
 from django.shortcuts import render, redirect
 from .models import ScanResult
 from django.utils import timezone
-import nmap
+import subprocess
+import json
+import re
 
 def index(request):
-    results = ScanResult.objects.order_by('-scan_date').distinct('ip')
+    results = ScanResult.objects.all().order_by('-scan_date')
+
+    ip_filter = request.GET.get("ip_filter")
+    os_filter = request.GET.get("os_filter")
+
+    if ip_filter:
+        results = results.filter(ip__icontains=ip_filter)
+    if os_filter:
+        results = results.filter(os__icontains=os_filter)
+
     return render(request, 'scanner/index.html', {'results': results})
 
-def scan_network(request):
+def scan(request):
     if request.method == 'POST':
-        ip_range = request.POST.get('ip_range')
-        nm = nmap.PortScanner()
-        try:
-            nm.scan(hosts=ip_range, arguments='-O -sS -T4')
-        except Exception as e:
-            return render(request, 'scanner/index.html', {'error': str(e)})
+        ip_range = request.POST.get("ip_range")
+        protocol = request.POST.get("protocol", "tcp").lower()
 
-        for host in nm.all_hosts():
-            mac = nm[host]['addresses'].get('mac', '')
-            os = nm[host].get('osmatch', [{'name': 'Unknown OS'}])[0]['name']
-            open_ports = []
+        if not ip_range:
+            return redirect('/')
+
+        if protocol == 'tcp':
+            scan_args = ['nmap', '-sS', '-O', ip_range]
+        elif protocol == 'udp':
+            scan_args = ['nmap', '-sU', '-O', ip_range]
+        else:
+            scan_args = ['nmap', '-O', ip_range]
+
+        result = subprocess.run(scan_args, capture_output=True, text=True)
+
+        output = result.stdout
+        hosts = re.split(r"Nmap scan report for ", output)[1:]
+
+        for host_info in hosts:
+            lines = host_info.strip().splitlines()
+            ip = lines[0].strip().split()[0]
+            mac = ""
+            os = "Unknown OS"
+            ports = []
             banners = {}
 
-            for proto in nm[host].all_protocols():
-                ports = nm[host][proto].keys()
-                for port in ports:
-                    open_ports.append(port)
-                    banner = nm[host][proto][port].get('product', '') or nm[host][proto][port].get('name', '')
-                    banners[str(port)] = banner
+            for line in lines:
+                if "MAC Address:" in line:
+                    mac = line.split("MAC Address:")[1].split()[0]
+                if "OS details:" in line:
+                    os = line.split("OS details:")[1].strip()
+                if re.match(r"\d+/tcp|udp", line):
+                    port_data = line.split()
+                    port = int(port_data[0].split('/')[0])
+                    ports.append(port)
+                    banners[str(port)] = " ".join(port_data[2:])  # service info
 
             ScanResult.objects.create(
-                ip=host,
+                ip=ip,
                 mac=mac,
                 os=os,
-                open_ports=open_ports,
-                banners=banners
+                open_ports=ports,
+                banners=banners,
+                scan_date=timezone.now()
             )
-
-        return redirect('/')
     return redirect('/')
+
+def clear_history(request):
+    ScanResult.objects.all().delete()
+    return redirect('index')
 
 def export_json(request):
     from django.http import JsonResponse
